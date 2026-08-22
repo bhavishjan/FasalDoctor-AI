@@ -1,6 +1,79 @@
-# Dependencies
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Linker files
+*.ilk
+
+# Debugger Files
+*.pdb
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+*.so.*
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Build directories
+build/
+Build/
+build-*/
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.swp
+
+# vcpkg
+vcpkg_installed/
+
+# debug information files
+*.dwo
+
+# test output & cache
+Testing/
+.cache/
+
+# Node / Next.js
 node_modules/
 admin-portal/node_modules/
+admin-portal/.next/
+admin-portal/out/
+*.tsbuildinfo
+next-env.d.ts
 
 # Environment files
 .env
@@ -8,12 +81,9 @@ admin-portal/node_modules/
 .env.*.local
 admin-portal/.env.local
 
-# Build outputs
-admin-portal/.next/
-admin-portal/out/
+# Edge node artifacts
 edge-inference-node/build/
 edge-inference-node/edge_scanner
-edge-inference-node/src/*.o
 edge-inference-node/batch_queue.json
 edge-inference-node/sync_payload.json
 
@@ -24,7 +94,3 @@ edge-inference-node/sync_payload.json
 # OS
 .DS_Store
 Thumbs.db
-
-# Next.js
-*.tsbuildinfo
-next-env.d.ts
