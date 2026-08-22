@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+admin-portal/node_modules/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+admin-portal/.env.local
+
+# Build outputs
+admin-portal/.next/
+admin-portal/out/
+edge-inference-node/build/
+edge-inference-node/edge_scanner
+edge-inference-node/src/*.o
+edge-inference-node/batch_queue.json
+edge-inference-node/sync_payload.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Next.js
+*.tsbuildinfo
+next-env.d.ts
