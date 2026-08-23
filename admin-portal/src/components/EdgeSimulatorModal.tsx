@@ -19,11 +19,21 @@ interface EdgeSimulatorModalProps {
 
 const DISEASE_CLASSES = ['Healthy', 'Wheat Rust', 'Corn Blight', 'Cotton Curl Virus', 'Sugarcane Red Rot'];
 
+const EDGE_NODES = [
+  { code: 'MULTAN-104', region: 'Multan', crop: 'Wheat' },
+  { code: 'FSDB-089', region: 'Faisalabad', crop: 'Cotton' },
+  { code: 'SUKKUR-210', region: 'Sukkur', crop: 'Sugarcane' },
+  { code: 'PSHW-055', region: 'Peshawar', crop: 'Maize' },
+  { code: 'DGKHAN-033', region: 'Dera Ghazi Khan', crop: 'Wheat' },
+  { code: 'SAHIWAL-077', region: 'Sahiwal', crop: 'Cotton' },
+];
+
 export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: EdgeSimulatorModalProps) {
   const [stage, setStage] = useState<'idle' | 'loaded' | 'inferring' | 'inferred' | 'syncing' | 'synced'>('idle');
   const [fileName, setFileName] = useState('');
   const [terminalLines, setTerminalLines] = useState<string[]>([]);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [selectedNode, setSelectedNode] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetState = () => {
@@ -43,11 +53,17 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
     if (file) {
       setFileName(file.name);
       setStage('loaded');
-      setTerminalLines([`> Loaded image: ${file.name}`, `> Resolution: 4032x3024 (scaled to 224x224)`, `> Color space: BGR → RGB converted`]);
+      setTerminalLines([
+        `> Node: ${EDGE_NODES[selectedNode].code} (${EDGE_NODES[selectedNode].region})`,
+        `> Loaded image: ${file.name}`,
+        `> Resolution: 4032x3024 (scaled to 224x224)`,
+        `> Color space: BGR → RGB converted`,
+      ]);
     }
   };
 
   const runInference = async () => {
+    const node = EDGE_NODES[selectedNode];
     setStage('inferring');
     setTerminalLines(prev => [...prev, '', '> Initializing TFLite FlatBufferModel...', '> Allocating tensors (1x224x224x3 float32)...']);
 
@@ -66,6 +82,7 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
       ...prev,
       '',
       `> ─── TFLite Edge CPU Inference ───`,
+      `> Node: ${node.code} | Region: ${node.region}`,
       `> Status: ✓ SUCCESS`,
       `> Result: ${confidence.toFixed(1)}% ${disease}`,
       `> Execution Time: ${execTime.toFixed(1)}ms`,
@@ -75,7 +92,7 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
     ]);
 
     setSyncResult({
-      node_id: `node_${100 + Math.floor(Math.random() * 200)}_multan`,
+      node_id: node.code,
       disease_detected: disease,
       confidence: parseFloat(confidence.toFixed(1)),
       execution_time_ms: parseFloat(execTime.toFixed(1)),
@@ -86,8 +103,9 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
 
   const syncToCloud = async () => {
     if (!syncResult) return;
+    const node = EDGE_NODES[selectedNode];
     setStage('syncing');
-    setTerminalLines(prev => [...prev, '', '> Packaging sync_payload.json...', '> POST /api/telemetry ...']);
+    setTerminalLines(prev => [...prev, '', '> Packaging sync_payload.json...', `> POST /api/telemetry (region: ${node.region}) ...`]);
 
     try {
       const res = await fetch('/api/telemetry', {
@@ -95,10 +113,11 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           node_id: syncResult.node_id,
-          crop_type: 'Wheat',
+          crop_type: node.crop,
           disease_detected: syncResult.disease_detected,
           confidence: syncResult.confidence,
           execution_time_ms: syncResult.execution_time_ms,
+          region: node.region,
         }),
       });
 
@@ -106,20 +125,22 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
 
       setTerminalLines(prev => [
         ...prev,
-        `> Response: 200 OK`,
-        `> AI Recommendation: ${data.ai_recommendation}`,
-        `> Synced at: ${data.synced_at}`,
+        `> Response: ${res.status} OK`,
+        `> AI Recommendation: ${data.ai_recommendation ?? data.results?.[0]?.ai_recommendation ?? 'N/A'}`,
+        `> Synced at: ${data.synced_at ?? data.results?.[0]?.synced_at ?? new Date().toISOString()}`,
         '> ✓ CLOUD SYNC COMPLETE',
       ]);
 
-      setSyncResult({ ...syncResult, ai_recommendation: data.ai_recommendation });
+      setSyncResult({
+        ...syncResult,
+        ai_recommendation: data.ai_recommendation ?? data.results?.[0]?.ai_recommendation ?? '',
+      });
       setStage('synced');
 
-      // Trigger dashboard update after a brief pause to show the success state
       setTimeout(() => {
         onSyncComplete({
           ...syncResult,
-          ai_recommendation: data.ai_recommendation,
+          ai_recommendation: data.ai_recommendation ?? data.results?.[0]?.ai_recommendation ?? '',
         });
         handleClose();
       }, 2000);
@@ -156,6 +177,23 @@ export default function EdgeSimulatorModal({ isOpen, onClose, onSyncComplete }: 
 
         {/* Body */}
         <div className="p-6 space-y-5">
+          {/* Edge Node Selector */}
+          <div>
+            <label className="text-xs text-gray-400 mb-2 block">Select Edge Node</label>
+            <select
+              value={selectedNode}
+              onChange={(e) => setSelectedNode(Number(e.target.value))}
+              disabled={stage !== 'idle'}
+              className="w-full bg-black/40 border border-white/10 text-white text-sm rounded-lg p-2.5 focus:ring-cyan-500 focus:border-cyan-500 outline-none disabled:opacity-50"
+            >
+              {EDGE_NODES.map((node, i) => (
+                <option key={node.code} value={i} className="bg-zinc-900">
+                  {node.code} — {node.region} ({node.crop})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* File Picker */}
           <div>
             <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleFileSelect} />

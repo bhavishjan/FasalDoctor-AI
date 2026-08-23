@@ -21,6 +21,16 @@ include_directories(${TFLITE_INCLUDE_DIR})
 
 find_package(Threads REQUIRED)
 
+# Optional: libcurl for cloud sync
+find_package(CURL)
+if(CURL_FOUND)
+    message(STATUS "libcurl found — cloud sync enabled")
+    add_definitions(-DCLOUD_SYNC_ENABLED)
+    include_directories(${CURL_INCLUDE_DIRS})
+else()
+    message(STATUS "libcurl not found — cloud sync disabled (local JSON only)")
+endif()
+
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_executable(edge_scanner src/main.cpp)
@@ -32,3 +42,7 @@ target_link_libraries(edge_scanner
     ${TFLITE_LIB}
     Threads::Threads
 )
+
+if(CURL_FOUND)
+    target_link_libraries(edge_scanner ${CURL_LIBRARIES})
+endif()

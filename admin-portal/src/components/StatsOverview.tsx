@@ -1,7 +1,19 @@
 'use client';
 
+import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Cpu, TrendingUp } from "lucide-react";
 import { macroMetrics } from "@/lib/mockData";
+
+interface DashboardStats {
+  total_farmers: number;
+  active_seasons: number;
+  total_scans_today: number;
+  disease_detection_rate: number;
+  active_edge_nodes: number;
+  active_threats: number;
+  marketplace_active_listings: number;
+  national_health_index: number;
+}
 
 interface StatsOverviewProps {
   activeNodesOverride?: number;
@@ -9,8 +21,27 @@ interface StatsOverviewProps {
 }
 
 export default function StatsOverview({ activeNodesOverride, healthIndexOverride }: StatsOverviewProps) {
-  const activeNodes = activeNodesOverride ?? macroMetrics.activeNodes;
-  const healthIndex = healthIndexOverride ?? macroMetrics.healthIndex;
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/dashboard');
+        if (res.ok) {
+          setStats(await res.json());
+        }
+      } catch {
+        // Fall back to mock data
+      }
+    };
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeNodes = activeNodesOverride ?? stats?.active_edge_nodes ?? macroMetrics.activeNodes;
+  const healthIndex = healthIndexOverride ?? stats?.national_health_index ?? macroMetrics.healthIndex;
+  const ureaPrice = macroMetrics.ureaPriceCurrent; // TODO: fetch from /api/market
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -21,7 +52,9 @@ export default function StatsOverview({ activeNodesOverride, healthIndexOverride
           <Activity className="w-5 h-5 text-emerald-400" />
         </div>
         <p className="text-3xl font-bold text-white">{healthIndex}%</p>
-        <p className="text-xs text-emerald-400 mt-1">Optimal Status</p>
+        <p className="text-xs text-emerald-400 mt-1">
+          {stats ? `${stats.total_scans_today.toLocaleString()} scans today` : 'Optimal Status'}
+        </p>
       </div>
       
       <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5 backdrop-blur-sm relative overflow-hidden group hover:border-red-500/30 transition-all">
@@ -31,6 +64,9 @@ export default function StatsOverview({ activeNodesOverride, healthIndexOverride
           <AlertTriangle className="w-5 h-5 text-red-400" />
         </div>
         <p className="text-xl font-bold text-red-400 mt-1">CRITICAL: {macroMetrics.wheatYieldPredicted} Wheat Surplus</p>
+        {stats && stats.active_threats > 0 && (
+          <p className="text-xs text-red-400/70 mt-1">{stats.active_threats} active climate threats</p>
+        )}
       </div>
       
       <div className="bg-white/5 border border-white/10 rounded-xl p-5 backdrop-blur-sm relative overflow-hidden group hover:border-white/20 transition-all">
@@ -49,7 +85,7 @@ export default function StatsOverview({ activeNodesOverride, healthIndexOverride
           <h3 className="text-sm font-medium text-gray-400">Fertilizer Price Index</h3>
           <TrendingUp className="w-5 h-5 text-amber-400" />
         </div>
-        <p className="text-3xl font-bold text-white">PKR {macroMetrics.ureaPriceCurrent.toLocaleString()}</p>
+        <p className="text-3xl font-bold text-white">PKR {ureaPrice.toLocaleString()}</p>
         <p className="text-xs text-amber-400 mt-1">Live tracking / 50kg bag</p>
       </div>
     </div>

@@ -1,0 +1,184 @@
+================================================================================
+                    NATIONAL AGRI-OS — PROJECT PROGRESS
+================================================================================
+
+Project: FasalDoctor-AI (National Agri-OS)
+Edge-to-Cloud Agricultural Ecosystem for Pakistan
+
+================================================================================
+ PHASE 1: WHAT AADIL DID (Initial Build)
+================================================================================
+
+Aadil laid the foundation of the entire project. He built the following:
+
+1. ADMIN PORTAL (Next.js 16 + Turbopack)
+   - Full visual dashboard with dark-mode command center UI
+   - Components: StatsOverview, RegionalTelemetryGrid, MacroEconomicAdvisor,
+     DisasterBroadcastModal, EdgeSimulatorModal, SwarmSimulator, LiveEdgeFeed
+   - Mock data system (mockData.ts) for development without database
+   - Realtime manager (realtimeManager.ts) with pub/sub architecture
+   - Supabase client setup (supabaseClient.ts)
+
+2. EDGE INFERENCE NODE (C++)
+   - TFLite FlatBuffer model loader for plant disease quantized model
+   - Image preprocessing pipeline (BGR→RGB, resize to 224x224, UINT8 quantization)
+   - Inference engine with confidence scoring
+   - CMake build system
+
+3. INITIAL DATABASE SCHEMA (Supabase)
+   - 4 basic tables: farmers_registry, crop_telemetry, market_economics, climate_threats
+   - Basic structure to demonstrate the concept
+
+4. API ROUTES
+   - POST /api/telemetry — edge-to-cloud sync endpoint
+   - GET /api/telemetry/stream — SSE streaming for live updates
+
+5. PROJECT STRUCTURE
+   - Organized into admin-portal/, edge-inference-node/, supabase/ directories
+   - README with project vision documentation
+
+================================================================================
+ PHASE 2: WHAT BHAVISH JAN DID TODAY (Database & Full Integration)
+================================================================================
+
+Bhavish Jan transformed the skeleton into a production-grade system:
+
+1. COMPLETE DATABASE SCHEMA (supabase/schema.sql)
+   - Expanded from 4 tables to 21 tables across 6 layers:
+     Layer 1: Auth & Farmers (profiles, farmers)
+     Layer 1b: Land & Soil (land_parcels, soil_assessments)
+     Layer 2: Crop Lifecycle (seasons, crop_rotation_history, disease_scans,
+              irrigation_schedule, fertilizer_recommendations)
+     Layer 3: Market & Economy (market_prices, crop_demand_forecast,
+              alternative_crop_alerts)
+     Layer 4: Climate & Disaster (weather_forecasts, disaster_broadcasts,
+              climate_threats)
+     Layer 5: Marketplace (buyer_profiles, marketplace_listings, transactions)
+     Layer 6: Edge & Telemetry (edge_nodes, telemetry_sync_log, crop_telemetry)
+   - 7 custom enum types (user_role, season_status, irrigation_status, etc.)
+   - Full Row Level Security (RLS) policies for all 21 tables
+   - 7 database functions:
+     * suggest_crop_rotation() — AI crop rotation based on soil history
+     * detect_crop_surplus() — national oversupply detection
+     * find_cheapest_fertilizer() — market price lookup
+     * check_rain_irrigation_alert() — weather-based irrigation advisory
+     * get_dashboard_stats() — admin dashboard aggregation
+     * get_regional_telemetry() — per-region telemetry summary
+     * increment_node_scans() — atomic edge node counter
+   - Performance indexes on all query-critical columns
+   - Auto-update timestamp triggers
+   - Seed data: 6 edge nodes, 10 market prices, 10 weather forecasts,
+     3 climate threats, 4 crop forecasts, 2 disaster broadcasts
+   - Supabase Realtime publication enabled on 4 tables
+
+2. SCHEMA DEPLOYMENT
+   - Created Supabase project (djrescljfbsrusnmswhm)
+   - Deployed schema successfully — all 21 tables live
+   - Configured environment variables (.env.local)
+
+3. API ROUTES CREATED (8 total)
+   - GET  /api/dashboard         — calls get_dashboard_stats() RPC
+   - GET  /api/telemetry/regional — calls get_regional_telemetry() RPC
+   - POST /api/telemetry          — edge-to-cloud sync with node resolution
+   - GET  /api/telemetry/history  — recent telemetry for live feed
+   - GET  /api/forecast           — crop demand forecast with surplus analysis
+   - GET  /api/disaster           — disaster broadcasts (GET/POST)
+   - GET  /api/market             — market prices with filtering
+   - GET  /api/telemetry/stream   — SSE streaming (existing, preserved)
+
+4. COMPONENT INTEGRATION (Mock → Real Database)
+   - StatsOverview.tsx — fetches from /api/dashboard every 30s
+   - RegionalTelemetryGrid.tsx — fetches from /api/telemetry/regional every 15s
+   - MacroEconomicAdvisor.tsx — fetches from /api/forecast, dynamic color coding
+   - LiveEdgeFeed.tsx — loads telemetry history from /api/telemetry/history
+   - EdgeSimulatorModal.tsx — 6 real edge nodes, sends region + crop_type
+   - SwarmSimulator.tsx — region-mapped payloads with correct crops
+   - DisasterBroadcastModal.tsx — POSTs to /api/disaster with full payload
+   - page.tsx — initializes Supabase Realtime on mount
+
+5. SUPABASE REALTIME SUBSCRIPTIONS
+   - Rewrote realtimeManager.ts with proper postgres_changes subscriptions
+   - Live telemetry events pushed to dashboard instantly
+
+6. EDGE NODE CLOUD SYNC (C++)
+   - Added CloudSyncManager class using libcurl
+   - POSTs batch telemetry to cloud API after inference
+   - Added --region and --cloud-url CLI flags
+   - Graceful fallback to local JSON if libcurl unavailable
+
+7. BUG DETECTION & FIXES
+   Bug 1 (CRITICAL): Confidence numeric overflow
+     - EdgeSimulator sent 88-97% but DB DECIMAL(4,3) max was 9.999
+     - Fixed: API normalizes confidence (values > 1 divided by 100)
+
+   Bug 2 (CRITICAL): Disaster broadcast RLS block
+     - Anon key couldn't INSERT into disaster_broadcasts (requires admin role)
+     - Fixed: Created supabaseServer.ts with service role client to bypass RLS
+
+   Bug 3: LiveEdgeFeed confidence display guard
+     - Added Math.min(confidence, 1) before percentage display
+
+   Bug 4: Schema soil_ph DECIMAL(3,1) too narrow
+     - Max value 9.9 couldn't store alkaline soil pH
+     - Fixed: Widened to DECIMAL(4,2) in schema + migration SQL
+
+   Bug 5: Confidence display inconsistency
+     - Verified both EdgeSimulator and Realtime paths display correctly
+
+   Previous schema bugs fixed (from audit):
+     - earthdistance extension missing → replaced with simple lat/lon index
+     - 8 tables had duplicate RLS policies (FOR ALL + FOR SELECT conflict)
+     - irrigation_schedule.status used TEXT instead of irrigation_status enum
+     - get_dashboard_stats() queried wrong table (disease_scans vs crop_telemetry)
+     - crop_telemetry missing from DROP TABLE list
+     - Helper functions returned NULL instead of safe defaults
+     - Missing mutation policies for irrigation/fertilizer tables
+
+8. DOCUMENTATION
+   - SUPABASE_SETUP.md — step-by-step deployment guide
+   - .env.local.example — environment variable template
+
+================================================================================
+ PHASE 3: FUTURE PLANS
+================================================================================
+
+IMMEDIATE NEXT STEPS:
+  - Add service role key to .env.local (pending from Bhavish)
+  - Run pH column migration SQL on live Supabase
+  - Test disaster broadcast end-to-end with service role key
+  - Test full edge scanner flow (simulate scan → verify in DB)
+
+NEAR-TERM FEATURES:
+  - Farmer authentication flow (Supabase Auth → profiles → farmers)
+  - Admin role-based dashboard (separate admin/farmer/researcher views)
+  - Marketplace listings CRUD (post-harvest direct-to-buyer sales)
+  - Transaction tracking and payment status management
+  - Crop season management (plant → grow → harvest lifecycle)
+  - Irrigation schedule generation based on weather + soil data
+  - Fertilizer recommendation engine (NPK calculations per soil test)
+  - Crop rotation AI suggestions displayed in dashboard
+  - Supabase Storage for disease scan image uploads
+
+MEDIUM-TERM:
+  - Farmer mobile app (React Native or Flutter)
+  - SMS/USSD fallback for feature phone farmers
+  - Real weather API integration (PMD / OpenWeather)
+  - Market price API integration from real district markets
+  - Researcher portal (disease pattern analysis, forecast tuning)
+  - Edge node OTA firmware update mechanism
+  - Historical analytics dashboard (yield trends, disease maps)
+  - Multi-language support (Urdu, Sindhi, Pashto)
+
+LONG-TERM VISION:
+  - Scale to all provinces of Pakistan (Punjab, Sindh, KPK, Balochistan)
+  - Thousands of edge nodes deployed across agricultural zones
+  - AI model retraining pipeline from cloud-collected scan data
+  - National crop health monitoring at district level
+  - Predictive market pricing and oversupply early warning system
+  - Integration with government agricultural departments
+  - Satellite imagery overlay for large-scale crop monitoring
+  - Blockchain-based crop traceability for export quality assurance
+
+================================================================================
+ END OF PROGRESS REPORT
+================================================================================

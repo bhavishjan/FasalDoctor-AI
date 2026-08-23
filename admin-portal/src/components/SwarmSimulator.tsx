@@ -1,11 +1,21 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Zap, Activity, Timer, Cpu } from 'lucide-react';
 
 interface SwarmSimulatorProps {
   onTelemetryBurst: (logs: string[]) => void;
 }
+
+const REGIONS = ['Multan', 'Faisalabad', 'Sukkur', 'Peshawar', 'Dera Ghazi Khan', 'Sahiwal'];
+const CROPS_BY_REGION: Record<string, string> = {
+  'Multan': 'Wheat',
+  'Faisalabad': 'Cotton',
+  'Sukkur': 'Sugarcane',
+  'Peshawar': 'Maize',
+  'Dera Ghazi Khan': 'Wheat',
+  'Sahiwal': 'Cotton',
+};
 
 export default function SwarmSimulator({ onTelemetryBurst }: SwarmSimulatorProps) {
   const [activeNodes, setActiveNodes] = useState(50);
@@ -18,7 +28,7 @@ export default function SwarmSimulator({ onTelemetryBurst }: SwarmSimulatorProps
     activeThreads: 0
   });
 
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastMetricsUpdate = useRef<number>(Date.now());
   const requestCountRef = useRef(0);
   const totalLatencyRef = useRef(0);
@@ -31,13 +41,17 @@ export default function SwarmSimulator({ onTelemetryBurst }: SwarmSimulatorProps
     
     intervalRef.current = setInterval(async () => {
       const diseases = ['Healthy', 'Wheat Rust', 'Corn Blight', 'Cotton Curl Virus', 'Sugarcane Red Rot'];
-      const payloads = Array.from({ length: activeNodes }).map(() => ({
-        node_id: `swarm-${Math.random().toString(36).substring(7)}`,
-        crop_type: 'Unknown',
-        disease_detected: diseases[Math.floor(Math.random() * diseases.length)],
-        confidence: 0.7 + (Math.random() * 0.29),
-        execution_time_ms: Math.floor(Math.random() * 100) + 10,
-      }));
+      const payloads = Array.from({ length: activeNodes }).map(() => {
+        const region = REGIONS[Math.floor(Math.random() * REGIONS.length)];
+        return {
+          node_id: `swarm-${Math.random().toString(36).substring(7)}`,
+          crop_type: CROPS_BY_REGION[region] ?? 'Unknown',
+          disease_detected: diseases[Math.floor(Math.random() * diseases.length)],
+          confidence: 0.7 + (Math.random() * 0.29),
+          execution_time_ms: Math.floor(Math.random() * 100) + 10,
+          region,
+        };
+      });
 
       const startTime = Date.now();
       try {
@@ -55,8 +69,14 @@ export default function SwarmSimulator({ onTelemetryBurst }: SwarmSimulatorProps
           totalRequestsRef.current += payloads.length;
           totalLatencyRef.current += latency;
 
-          const logs = data.results.map((r: any) => 
-            `[SWARM] EDGE SYNC ${r.node_id}: ${r.disease_detected} (${(r.confidence * 100).toFixed(1)}% conf) — ${r.execution_time_ms}ms | AI: ${r.ai_recommendation}`
+          const logs = (data.results ?? []).map((r: {
+            node_id: string;
+            disease_detected: string;
+            confidence: number;
+            execution_time_ms: number;
+            ai_recommendation: string;
+          }) => 
+            `[SWARM] ${r.node_id}: ${r.disease_detected} (${(r.confidence * 100).toFixed(1)}% conf) — ${r.execution_time_ms}ms | ${r.ai_recommendation}`
           );
           onTelemetryBurst(logs);
         }

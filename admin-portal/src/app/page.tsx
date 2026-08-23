@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import StatsOverview from "@/components/StatsOverview";
 import RegionalTelemetryGrid from "@/components/RegionalTelemetryGrid";
@@ -10,6 +10,7 @@ import LiveEdgeFeed from "@/components/LiveEdgeFeed";
 import EdgeSimulatorModal from "@/components/EdgeSimulatorModal";
 import SwarmSimulator from "@/components/SwarmSimulator";
 import { macroMetrics } from "@/lib/mockData";
+import { realtimeManager } from "@/lib/realtimeManager";
 import { Zap } from "lucide-react";
 
 export default function Home() {
@@ -18,6 +19,30 @@ export default function Home() {
   const [showSwarmPanel, setShowSwarmPanel] = useState(false);
   const [activeNodes, setActiveNodes] = useState(macroMetrics.activeNodes);
   const [healthIndex, setHealthIndex] = useState(macroMetrics.healthIndex);
+
+  // Initialize Supabase Realtime on mount
+  useEffect(() => {
+    realtimeManager.initialize();
+
+    // Subscribe to live telemetry events
+    const unsubscribe = realtimeManager.subscribe('main', (event) => {
+      const feedMsg = `LIVE SYNC ${event.node_id}: ${event.disease_detected} (${(event.confidence * 100).toFixed(0)}% confidence) — ${event.execution_time_ms}ms`;
+      setBroadcastLogs(prev => [...prev, feedMsg]);
+
+      // Update dashboard stats
+      setActiveNodes(prev => prev + 1);
+      if (event.disease_detected !== 'Healthy') {
+        setHealthIndex(prev => Math.max(0, parseFloat((prev - 0.3).toFixed(1))));
+      } else {
+        setHealthIndex(prev => Math.min(100, parseFloat((prev + 0.1).toFixed(1))));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      realtimeManager.teardown();
+    };
+  }, []);
 
   const handleBroadcast = (msg: string) => {
     setBroadcastLogs(prev => [...prev, msg]);

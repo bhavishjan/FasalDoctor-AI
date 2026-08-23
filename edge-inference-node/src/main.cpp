@@ -15,6 +15,10 @@
 #include <sstream>
 #include <iomanip>
 
+#ifdef CLOUD_SYNC_ENABLED
+#include <curl/curl.h>
+#endif
+
 #include <opencv2/opencv.hpp>
 #include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/kernels/register.h"
@@ -130,6 +134,93 @@ public:
         return buffer.size();
     }
 };
+
+// ============================================================================
+// CloudSyncManager — POSTs telemetry batch to the National Agri-OS cloud API
+// ============================================================================
+#ifdef CLOUD_SYNC_ENABLED
+
+class CloudSyncManager {
+private:
+    std::string api_url;
+    std::string node_prefix;
+    std::string region;
+
+    static size_t write_callback(void* contents, size_t size, size_t nmemb, std::string* output) {
+        size_t total = size * nmemb;
+        output->append(static_cast<char*>(contents), total);
+        return total;
+    }
+
+public:
+    CloudSyncManager(const std::string& url, const std::string& prefix, const std::string& reg)
+        : api_url(url), node_prefix(prefix), region(reg) {}
+
+    // Sync a batch of telemetry JSON entries to the cloud
+    bool sync_batch(const std::vector<std::string>& entries, const std::vector<std::string>& classes) {
+        if (entries.empty()) return true;
+
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            std::cerr << "[CLOUD] Failed to initialize curl\n";
+            return false;
+        }
+
+        // Build JSON array payload
+        std::string payload = "[\n";
+        for (size_t i = 0; i < entries.size(); ++i) {
+            // Parse the existing JSON entry to extract fields and add crop_type + region
+            // The entries are already formatted JSON objects from diagnose_single_frame
+            if (i > 0) payload += ",\n";
+            // Insert region into the JSON — find the closing brace and add fields before it
+            std::string entry = entries[i];
+            // Simple approach: add crop_type and region before the closing brace
+            auto last_brace = entry.rfind('}');
+            if (last_brace != std::string::npos) {
+                entry = entry.substr(0, last_brace)
+                    + ",\n    \"crop_type\": \"Unknown\""
+                    + ",\n    \"region\": \"" + escape_json_string(region) + "\"\n  }";
+            }
+            payload += "  " + entry;
+        }
+        payload += "\n]";
+
+        std::string response_body;
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        curl_easy_setopt(curl, CURLOPT_URL, api_url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+
+        CURLcode res = curl_easy_perform(curl);
+
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+
+        if (res != CURLE_OK) {
+            std::cerr << "[CLOUD] Sync failed: " << curl_easy_strerror(res) << "\n";
+            return false;
+        }
+
+        if (http_code >= 200 && http_code < 300) {
+            std::cout << "[CLOUD] Sync successful — " << entries.size() << " records sent (HTTP " << http_code << ")\n";
+            return true;
+        } else {
+            std::cerr << "[CLOUD] Sync returned HTTP " << http_code << ": " << response_body << "\n";
+            return false;
+        }
+    }
+};
+
+#endif // CLOUD_SYNC_ENABLED
 
 static std::mutex cout_mutex;
 
@@ -275,7 +366,9 @@ void diagnose_single_frame(const std::string& image_path, const std::string& nod
 int main(int argc, char** argv) {
     size_t num_threads = 4;
     std::string node_prefix = "node";
+    std::string region = "Unknown";
     std::vector<std::string> images;
+    std::string cloud_api_url = "";
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -291,6 +384,10 @@ int main(int argc, char** argv) {
             if (!imgs.empty()) images.push_back(imgs);
         } else if (arg == "--node-prefix" && i + 1 < argc) {
             node_prefix = argv[++i];
+        } else if (arg == "--region" && i + 1 < argc) {
+            region = argv[++i];
+        } else if (arg == "--cloud-url" && i + 1 < argc) {
+            cloud_api_url = argv[++i];
         }
     }
 
@@ -327,6 +424,46 @@ int main(int argc, char** argv) {
 
     size_t depth = telemetry_queue.depth();
     telemetry_queue.flush("batch_queue.json");
+
+    // Cloud sync — POST batch to the National Agri-OS API
+#ifdef CLOUD_SYNC_ENABLED
+    if (!cloud_api_url.empty()) {
+        std::cout << "\n[CLOUD] Attempting sync to: " << cloud_api_url << "\n";
+        CloudSyncManager syncer(cloud_api_url, node_prefix, region);
+
+        // Collect all entries from the queue for cloud sync
+        // (The queue was already flushed to file, but we need the raw entries)
+        // Re-read from batch_queue.json for the sync
+        std::ifstream batch_file("batch_queue.json");
+        if (batch_file.is_open()) {
+            std::string content((std::istreambuf_iterator<char>(batch_file)),
+                                 std::istreambuf_iterator<char>());
+            batch_file.close();
+
+            // Parse individual entries from the JSON array
+            // Simple parsing: find each { ... } block
+            std::vector<std::string> batch_entries;
+            size_t pos = 0;
+            while (pos < content.size()) {
+                auto start = content.find('{', pos);
+                if (start == std::string::npos) break;
+                auto end = content.find('}', start);
+                if (end == std::string::npos) break;
+                batch_entries.push_back(content.substr(start, end - start + 1));
+                pos = end + 1;
+            }
+
+            bool sync_ok = syncer.sync_batch(batch_entries, classes);
+            if (!sync_ok) {
+                std::cout << "[CLOUD] Sync failed. Data preserved in batch_queue.json for retry.\n";
+            }
+        }
+    } else {
+        std::cout << "\n[CLOUD] No --cloud-url specified. Data saved to batch_queue.json only.\n";
+    }
+#else
+    std::cout << "\n[CLOUD] Cloud sync not compiled (libcurl not found). Data saved to batch_queue.json only.\n";
+#endif
 
     double throughput = (wall_clock_ms > 0) ? (images.size() / (wall_clock_ms / 1000.0)) : 0.0;
     long long avg_inference_us = (images.size() > 0) ? (total_inference_us.load() / images.size()) : 0;
